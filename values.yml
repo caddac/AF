@@ -125,7 +125,10 @@ airflow:
   ##   - id: my_aws
   ##     type: aws
   ##     extra: '{"aws_access_key_id": "**********", "aws_secret_access_key": "***", "region_name":"eu-central-1"}'
-  connections: []
+  connections:
+    - id: world_time
+      type: http
+      host: http://worldtimeapi.org
 
   ## Add airflow variables
   ## This should be a json string with your variables in it
@@ -567,7 +570,7 @@ dags:
   git:
     ##
     ## url to clone the git repository
-    url:
+    url: https://github.com/caddac/AF.git
     ##
     ## branch name, tag or sha1 to reset to
     ref: master
@@ -580,14 +583,14 @@ dags:
     ## Note git.repoHost and git.repoPort are required for this to work
     sshKeyscan: false
     ## The host of the repo so for example if a github repo put github.com (only needed for ssh repos)
-    repoHost: ""
+    repoHost: "github.com"
     ## The port of the repo (only needed for ssh repos)
     repoPort: 22
     ## The name of the private key file in your git.secret (only needed for ssh repos)
     privateKeyName: id_rsa
     gitSync:
       ## Turns on the side car container
-      enabled: false
+      enabled: true
       ## Image for the side car container
       image:
         ## docker-airflow image
@@ -603,7 +606,7 @@ dags:
       resources: {}
   initContainer:
     ## Fetch the source code when the pods starts
-    enabled: false
+    enabled: true
     ## Image for the init container (any image with git will do)
     image:
       ## docker-airflow image
@@ -739,7 +742,7 @@ redis:
       accessModes:
       - ReadWriteOnce
   ##
-  ## Disable cluster management by default.
+  ## Disable dashboard management by default.
   cluster:
     enabled: false
 
@@ -764,7 +767,7 @@ prometheusRule:
   ##      https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
   groups: {}
 
-  ## Used to pass Labels that are used by the Prometheus installed in your cluster to select Prometheus Rules to work with
+  ## Used to pass Labels that are used by the Prometheus installed in your dashboard to select Prometheus Rules to work with
   ## ref: https://github.com/coreos/prometheus-operator/blob/master/Documentation/api.md#prometheusspec
   additionalLabels: {}
 
