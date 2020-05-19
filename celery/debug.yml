@@ -1,0 +1,1220 @@
+Release "airflow" has been upgraded. Happy Helming!
+NAME: airflow
+LAST DEPLOYED: Sat May  2 23:19:47 2020
+NAMESPACE: default
+STATUS: pending-upgrade
+REVISION: 4
+TEST SUITE: None
+HOOKS:
+MANIFEST:
+---
+# Source: airflow/templates/poddisruptionbudget.yaml
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: airflow-pdb
+  labels:
+    app: airflow
+    component: scheduler
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: airflow
+      component: scheduler
+      release: airflow
+  maxUnavailable: 1
+---
+# Source: airflow/templates/service-account.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: airflow
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+---
+# Source: airflow/charts/postgresql/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.1.4
+    release: "airflow"
+    heritage: "Helm"
+type: Opaque
+data:
+  postgresql-password: "YWlyZmxvdw=="
+---
+# Source: airflow/charts/redis/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-redis
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    release: "airflow"
+    heritage: "Helm"
+type: Opaque
+data:
+  redis-password: "YWlyZmxvdw=="
+---
+# Source: airflow/templates/secret-connections.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: airflow-connections
+  labels:
+    app: airflow
+    chart: "airflow-6.8.1"
+    release: "airflow"
+    heritage: "Helm"
+type: Opaque
+data:
+  add-connections.sh: CiAgIyEvYmluL3NoIC1lCiAgYWlyZmxvdyBjb25uZWN0aW9ucyAtLWFkZCAtLWNvbm5faWQgd29ybGRfdGltZSAtLWNvbm5fdHlwZSAiaHR0cCIgIC0tY29ubl9ob3N0ICJodHRwOi8vd29ybGR0aW1lYXBpLm9yZyIg
+---
+# Source: airflow/charts/redis/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-redis
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    heritage: Helm
+    release: airflow
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+# Source: airflow/charts/redis/templates/health-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-redis-health
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    heritage: Helm
+    release: airflow
+data:
+  ping_readiness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+# Source: airflow/templates/configmap-env.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "airflow-env"
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+data:
+  ## Force UTC timezone
+  TZ: Etc/UTC
+  ## Postgres DB configuration
+  POSTGRES_HOST: "airflow-postgresql"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "airflow"
+  ## Redis DB configuration
+  REDIS_HOST: "airflow-redis-master"
+  REDIS_PORT: ""
+  AIRFLOW__CELERY__FLOWER_URL_PREFIX: ""
+  AIRFLOW__CELERY__WORKER_CONCURRENCY: "1"
+  ## Flower PORT
+  FLOWER_PORT: "5555"
+  # For backwards compat with AF < 1.10, CELERY_CONCURRENCY got renamed to WORKER_CONCURRENCY
+  AIRFLOW__CELERY__CELERY_CONCURRENCY: "1"
+  # Configure puckel's docker-airflow entrypoint
+  EXECUTOR: "Celery"
+  FERNET_KEY: ""
+  DO_WAIT_INITDB: "false"
+  ## Custom Airflow settings
+  AIRFLOW__CORE__DONOT_PICKLE: "false"
+  AIRFLOW__CORE__DAGS_FOLDER: "/usr/local/airflow/dags"
+  AIRFLOW__CORE__BASE_LOG_FOLDER: "/usr/local/airflow/logs"
+  AIRFLOW__CORE__DAG_PROCESSOR_MANAGER_LOG_LOCATION: "/usr/local/airflow/logs/dag_processor_manager/dag_processor_manager.log"
+  AIRFLOW__SCHEDULER__CHILD_PROCESS_LOG_DIRECTORY: "/usr/local/airflow/logs/scheduler"
+  AIRFLOW__WEBSERVER__BASE_URL: "http://localhost:8080"
+  # Disabling XCom pickling for forward compatibility
+  AIRFLOW__CORE__ENABLE_XCOM_PICKLING: "false"
+  # Note: changing `Values.airflow.config` won't change the configmap checksum and so won't make
+  # the pods to restart
+---
+# Source: airflow/templates/configmap-git-clone.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-git-clone
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+data:
+  git-clone.sh: |
+    #!/bin/sh -e
+    REPO=$1
+    REF=$2
+    DIR=$3
+    REPO_HOST=$4
+    REPO_PORT=$5
+    PRIVATE_KEY=$6
+    mkdir -p ~/.ssh/
+    # Init Containers will re-run on Pod restart. Remove the directory's contents
+    # and reprovision when this happens.
+    if [ -d "$DIR" ]; then
+        rm -rf $( find $DIR -mindepth 1 )
+    fi
+    git clone $REPO -b $REF $DIR
+  git-sync.sh: |
+    #!/bin/sh -e
+    REPO=$1
+    REF=$2
+    DIR=$3
+    REPO_HOST=$4
+    REPO_PORT=$5
+    PRIVATE_KEY=$6
+    SYNC_TIME=$7
+    mkdir -p ~/.ssh/
+    if [ -d "$DIR" ]; then
+        rm -rf $( find $DIR -mindepth 1 )
+    fi
+    git clone $REPO -b $REF $DIR
+    cd $DIR
+    while true; do
+      git fetch origin $REF;
+      git reset --hard origin/$REF;
+      git clean -fd;
+      date;
+      echo "*** sleeping ${SYNC_TIME} seconds"
+      sleep $SYNC_TIME;
+    done
+---
+# Source: airflow/templates/configmap-scripts.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-scripts
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+data:
+  install-requirements.sh: |
+    #!/bin/sh -e
+    if [ ! -d /usr/local/airflow/dags ]; then
+      echo "No folder /usr/local/airflow/dags"
+      exit 0
+    fi
+    cd /usr/local/airflow/dags
+    if [ -f requirements.txt ]; then
+      pip install --user -r requirements.txt
+    else
+      exit 0
+    fi
+  stop-worker.sh: |
+    #!/bin/sh -e
+    celery -b $AIRFLOW__CELERY__BROKER_URL -d celery@$HOSTNAME control cancel_consumer default
+
+    # wait 10 second before checking the status of the worker
+    sleep 10
+
+    while (( $(celery -b $AIRFLOW__CELERY__BROKER_URL inspect active --json | python -c "import sys, json; print(len(json.load(sys.stdin)['celery@$HOSTNAME']))") > 0 )); do
+    sleep 60
+    done
+  preinit-db.sh: |
+    #!/bin/bash -e
+    COUNT=0
+    echo "*** Waiting 10s for postgres"
+    sleep 10
+    while [ "${COUNT}" -lt 5 ]; do
+      echo "*** Initializing airflow db"
+      if airflow initdb; then
+        echo "*** Initdb succeeded"
+        exit 0
+      else
+        ((COUNT++))
+        echo "*** Initdb failed: waiting 5s before retry #${COUNT}"
+        sleep 5
+      fi
+    done
+    echo "*** Initdb failed after ${COUNT} retries; failed."
+    exit 1
+---
+# Source: airflow/templates/configmap-variables-pools.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: airflow-variables-pools
+    labels:
+        app: airflow
+        chart: airflow-6.8.1
+        release: airflow
+        heritage: Helm
+data:
+    variables.json: |
+        {}
+    pools.json: |
+        {}
+---
+# Source: airflow/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: airflow
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+rules:
+- apiGroups: [""]
+  resources:
+  - pods
+  verbs: ["create", "get", "delete", "list", "watch"]
+- apiGroups: [""]
+  resources:
+  - "pods/log"
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources:
+  - "pods/exec"
+  verbs: ["create", "get"]
+---
+# Source: airflow/templates/role-binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: airflow
+  labels:
+    app: airflow
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: airflow
+subjects:
+- kind: ServiceAccount
+  name: airflow
+  namespace: default
+---
+# Source: airflow/charts/postgresql/templates/svc-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-postgresql-headless
+  labels:
+    app: postgresql
+    chart: postgresql-8.1.4
+    release: "airflow"
+    heritage: "Helm"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: "airflow"
+---
+# Source: airflow/charts/postgresql/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.1.4
+    release: "airflow"
+    heritage: "Helm"
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: "airflow"
+    role: master
+---
+# Source: airflow/charts/redis/templates/headless-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-redis-headless
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    release: airflow
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: redis
+    release: airflow
+---
+# Source: airflow/charts/redis/templates/redis-master-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-redis-master
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    release: airflow
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: redis
+    release: airflow
+    role: master
+---
+# Source: airflow/templates/service-flower.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-flower
+  labels:
+    app: airflow
+    component: flower
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+  annotations:
+spec:
+  type: ClusterIP
+  selector:
+    app: airflow
+    component: flower
+    release: airflow
+  ports:
+    - name: flower
+      protocol: TCP
+      port: 5555
+      targetPort: 5555
+---
+# Source: airflow/templates/service-web.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-web
+  labels:
+    app: airflow
+    component: web
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+  annotations:
+spec:
+  type: ClusterIP
+  selector:
+    app: airflow
+    component: web
+    release: airflow
+  sessionAffinity: None
+  sessionAffinityConfig:
+  ports:
+    - name: web
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Source: airflow/templates/service-worker.yaml
+# Headless service for stable DNS entries of StatefulSet members.
+apiVersion: v1
+kind: Service
+metadata:
+  name: airflow-worker
+  labels:
+    app: airflow
+    component: worker
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  ports:
+    - name: worker
+      protocol: TCP
+      port: 8793
+  clusterIP: None
+  selector:
+    app: airflow
+    component: worker
+---
+# Source: airflow/templates/deployments-flower.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-flower
+  labels:
+    app: airflow
+    component: flower
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  replicas: 1
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: airflow
+      component: flower
+      release: airflow
+  template:
+    metadata:
+      annotations:
+        checksum/config-env: 8f9caffa1a0f64c247fb34ab174e76813d22ebef92663fb6ce07acb82616399a
+      labels:
+        app: airflow
+        component: flower
+        release: airflow
+    spec:
+      restartPolicy: Always
+      serviceAccountName: airflow
+      containers:
+        - name: airflow-flower
+          image: puckel/docker-airflow:1.10.9
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: "airflow-env"
+          env:          
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-postgresql
+                  key: postgresql-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-redis
+                  key: redis-password
+          ports:
+            - name: flower
+              containerPort: 5555
+              protocol: TCP
+          args: ["flower"]
+          livenessProbe:
+            httpGet:
+              path: "//"
+              port: flower
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            {}
+---
+# Source: airflow/templates/deployments-scheduler.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-scheduler
+  labels:
+    app: airflow
+    component: scheduler
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy:
+    # Kill the scheduler as soon as possible. It will restart quickly with all the workers,
+    # minimizing the time they are not synchronized.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 100%
+  selector:
+    matchLabels:
+      app: airflow
+      component: scheduler
+      release: airflow
+  template:
+    metadata:
+      annotations:
+        checksum/config-env: 8f9caffa1a0f64c247fb34ab174e76813d22ebef92663fb6ce07acb82616399a
+        checksum/config-git-clone: c84c23ef8e5ffba85854d48aa6da8f4962f1b98b33ec64ff9a250d452d7db11c
+        checksum/config-scripts: a9d7ad54c968c41fec051bb6621b5af9f072595f6718d6bccc170f4217b079ed
+        checksum/config-variables-pools: b67326bea9089d1035256f6b4dd356d226c06300533781140a6a4a8baaf491c5
+        checksum/secret-connections: abde4bb5f18e0219a8b176c528a51aa28a98b5b82a257bd0716e79241dc7384e
+        checksum/dags-git-ref: master
+      labels:
+        app: airflow
+        component: scheduler
+        release: airflow
+    spec:
+      restartPolicy: Always
+      serviceAccountName: airflow
+      containers:
+        - name: airflow-scheduler
+          image: puckel/docker-airflow:1.10.9
+          imagePullPolicy: IfNotPresent
+          envFrom:
+          - configMapRef:
+              name: "airflow-env"
+          env:          
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-postgresql
+                  key: postgresql-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-redis
+                  key: redis-password
+          resources:
+            {}
+          volumeMounts:
+            - name: scripts
+              mountPath: /usr/local/scripts
+            - name: connections
+              mountPath: /usr/local/connections
+            - name: variables-pools
+              mountPath: /usr/local/variables-pools/
+            - name: requirements-txt
+              mountPath: /requirements.txt
+              readOnly: true
+              
+              subPath: requirements.txt
+              
+            - mountPath: /usr/local/airflow/dags
+              name: dags
+          args:
+            - "bash"
+            - "-c"
+            - >
+              echo "*** waiting 10s..." &&
+              sleep 10 &&
+              mkdir -p /usr/local/airflow/.local/bin &&
+              export PATH=/usr/local/airflow/.local/bin:$PATH &&
+              echo "*** executing initdb" &&
+              airflow initdb &&
+                echo "*** adding variables" &&
+                airflow variables -i /usr/local/variables-pools/variables.json &&
+                echo "*** adding connections" &&
+                /usr/local/connections/add-connections.sh &&
+              echo "*** adding pools" &&
+              airflow pool -i /usr/local/variables-pools/pools.json &&
+              echo "*** executing scheduler" &&
+              airflow scheduler -n -1
+      volumes:
+        - name: scripts
+          configMap:
+            name: airflow-scripts
+            defaultMode: 0755
+        - name: dags-data
+          emptyDir: {}
+        - name: connections
+          secret:
+            secretName: airflow-connections
+            defaultMode: 0755
+        - name: variables-pools
+          configMap:
+            name: airflow-variables-pools
+            defaultMode: 0755
+        - name: requirements-txt
+          configMap:
+            name: airflow-requirements-txt
+        - hostPath:
+            path: /Users/dave/src/AF/dags
+          name: dags
+---
+# Source: airflow/templates/deployments-web.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: airflow-web
+  labels:
+    app: airflow
+    component: web
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  replicas: 1
+  minReadySeconds: 120
+  strategy:
+    # Smooth rolling update of the Web UI
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: airflow
+      component: web
+      release: airflow
+  template:
+    metadata:
+      annotations:
+        checksum/config-env: 8f9caffa1a0f64c247fb34ab174e76813d22ebef92663fb6ce07acb82616399a
+        checksum/config-git-clone: c84c23ef8e5ffba85854d48aa6da8f4962f1b98b33ec64ff9a250d452d7db11c
+        checksum/config-scripts: a9d7ad54c968c41fec051bb6621b5af9f072595f6718d6bccc170f4217b079ed
+        checksum/dags-git-ref: master
+      labels:
+        app: airflow
+        component: web
+        release: airflow
+    spec:
+      restartPolicy: Always
+      serviceAccountName: airflow
+      containers:
+        - name: airflow-web
+          image: puckel/docker-airflow:1.10.9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: web
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: "airflow-env"
+          env:          
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-postgresql
+                  key: postgresql-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-redis
+                  key: redis-password
+          resources:
+            {}
+          volumeMounts:
+            - name: scripts
+              mountPath: /usr/local/scripts
+            - name: requirements-txt
+              mountPath: /requirements.txt
+              readOnly: true
+              
+              subPath: requirements.txt
+              
+            - mountPath: /usr/local/airflow/dags
+              name: dags
+          args:
+            - "bash"
+            - "-c"
+            - >
+              echo 'waiting 60s...' &&
+              sleep 60 &&
+              mkdir -p /usr/local/airflow/.local/bin &&
+              export PATH=/usr/local/airflow/.local/bin:$PATH &&
+              echo 'executing webserver...' &&
+              airflow webserver
+          livenessProbe:
+            httpGet:
+              path: "/health"
+              port: web
+            ## Keep 6 minutes the delay to allow clean wait of postgres and redis containers
+            initialDelaySeconds: 360
+            periodSeconds: 60
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+
+          readinessProbe:
+            httpGet:
+              path: "/health"
+              port: web
+            initialDelaySeconds: 360
+            periodSeconds: 60
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+      volumes:
+        - name: scripts
+          configMap:
+            name: airflow-scripts
+            defaultMode: 0755
+        - name: dags-data
+          emptyDir: {}
+        - name: requirements-txt
+          configMap:
+            name: airflow-requirements-txt
+        - hostPath:
+            path: /Users/dave/src/AF/dags
+          name: dags
+---
+# Source: airflow/charts/postgresql/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: airflow-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.1.4
+    release: "airflow"
+    heritage: "Helm"
+spec:
+  serviceName: airflow-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: postgresql
+      release: "airflow"
+      role: master
+  template:
+    metadata:
+      name: airflow-postgresql
+      labels:
+        app: postgresql
+        chart: postgresql-8.1.4
+        release: "airflow"
+        heritage: "Helm"
+        role: master
+    spec:      
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        - name: init-chmod-data
+          image: docker.io/bitnami/minideb:stretch
+          imagePullPolicy: "Always"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /bitnami/postgresql/data
+              chmod 700 /bitnami/postgresql/data
+              find /bitnami/postgresql -mindepth 0 -maxdepth 1 -not -name ".snapshot" -not -name "lost+found" | \
+                xargs chown -R 1001:1001
+              chmod -R 777 /dev/shm
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: 
+            - name: dshm
+              mountPath: /dev/shm
+      containers:
+        - name: airflow-postgresql
+          image: docker.io/bitnami/postgresql:11.6.0-debian-9-r48
+          imagePullPolicy: "IfNotPresent"
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            runAsUser: 1001
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: "/bitnami/postgresql"
+            - name: PGDATA
+              value: "/bitnami/postgresql/data"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-postgresql
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: "airflow"
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "postgres" -d "airflow" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "postgres" -d "airflow" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: 
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+---
+# Source: airflow/charts/redis/templates/redis-master-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: airflow-redis-master
+  labels:
+    app: redis
+    chart: redis-10.3.4
+    release: airflow
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: airflow
+      role: master
+  serviceName: airflow-redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-10.3.4
+        release: airflow
+        role: master
+      annotations:
+        checksum/health: bee6e8f4d2f4dbc28b4c4ea3aff753a7ed3b0e248a9fd44c6435eebfa0874d42
+        checksum/configmap: 1d349fb08ff972c23c1f2d312e1609de49c4a80b6f570c9ab179591411eb73f6
+        checksum/secret: 0663a63366f11915bd0882aca68c2f22979af1658aff23f6c5552d47c2ee7dcf
+    spec:      
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: "default"
+      containers:
+      - name: airflow-redis
+        image: "docker.io/bitnami/redis:5.0.7-debian-9-r50"
+        imagePullPolicy: "IfNotPresent"
+        securityContext:
+          runAsUser: 1001
+        command:
+        - /bin/bash
+        - -c
+        - |
+          if [[ -n $REDIS_PASSWORD_FILE ]]; then
+            password_aux=`cat ${REDIS_PASSWORD_FILE}`
+            export REDIS_PASSWORD=$password_aux
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+          fi
+          ARGS=("--port" "${REDIS_PORT}")
+          ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+          ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+          /run.sh ${ARGS[@]}
+        env:
+        - name: REDIS_REPLICATION_MODE
+          value: master
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: airflow-redis
+              key: redis-password
+        - name: REDIS_PORT
+          value: "6379"
+        ports:
+        - name: redis
+          containerPort: 6379
+        livenessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_liveness_local.sh 5
+        readinessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_readiness_local.sh 5
+        resources:
+          null
+        volumeMounts:
+        - name: health
+          mountPath: /health
+        - name: redis-data
+          mountPath: /data
+          subPath: 
+        - name: config
+          mountPath: /opt/bitnami/redis/mounted-etc
+        - name: redis-tmp-conf
+          mountPath: /opt/bitnami/redis/etc/
+      volumes:
+      - name: health
+        configMap:
+          name: airflow-redis-health
+          defaultMode: 0755
+      - name: config
+        configMap:
+          name: airflow-redis
+      - name: "redis-data"
+        emptyDir: {}
+      - name: redis-tmp-conf
+        emptyDir: {}
+  updateStrategy:
+    type: RollingUpdate
+---
+# Source: airflow/templates/statefulsets-workers.yaml
+## Workers are not in deployment, but in StatefulSet, to allow each worker expose a mini-server
+## that only serve logs, that will be used by the web server.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: airflow-worker
+  labels:
+    app: airflow
+    component: worker
+    chart: airflow-6.8.1
+    release: airflow
+    heritage: Helm
+spec:
+  serviceName: "airflow-worker"
+  updateStrategy:
+    ## Kill the workers as soon as possible, the scheduler will restart the failed job later
+    type: RollingUpdate
+  ## Use experimental burst mode for faster StatefulSet scaling
+  ##   https://github.com/kubernetes/kubernetes/commit/c2c5051adf096ffd48bf1dcf5b11cb47e464ecdd
+  podManagementPolicy: Parallel
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+      component: worker
+      release: airflow
+  template:
+    metadata:
+      annotations:
+        checksum/config-env: 8f9caffa1a0f64c247fb34ab174e76813d22ebef92663fb6ce07acb82616399a
+        checksum/config-git-clone: c84c23ef8e5ffba85854d48aa6da8f4962f1b98b33ec64ff9a250d452d7db11c
+        checksum/config-scripts: a9d7ad54c968c41fec051bb6621b5af9f072595f6718d6bccc170f4217b079ed
+      labels:
+        app: airflow
+        component: worker
+        release: airflow
+    spec:
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: airflow
+      containers:
+        - name: airflow-worker
+          imagePullPolicy: IfNotPresent
+          image: "puckel/docker-airflow:1.10.9"
+          envFrom:
+            - configMapRef:
+                name: "airflow-env"
+          env:          
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-postgresql
+                  key: postgresql-password
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: airflow-redis
+                  key: redis-password
+          volumeMounts:
+            - name: scripts
+              mountPath: /usr/local/scripts
+            - name: requirements-txt
+              mountPath: /requirements.txt
+              readOnly: true
+              
+              subPath: requirements.txt
+              
+            - mountPath: /usr/local/airflow/dags
+              name: dags
+          args:
+            - "bash"
+            - "-c"
+            - >
+              echo 'waiting 60s...' &&
+              sleep 60 &&
+              mkdir -p /usr/local/airflow/.local/bin &&
+              export PATH=/usr/local/airflow/.local/bin:$PATH &&
+              echo 'executing worker...' &&
+              airflow worker
+          ports:
+            - name: wlog
+              containerPort: 8793
+              protocol: TCP
+          resources:
+            {}
+      volumes:
+        - name: scripts
+          configMap:
+            name: airflow-scripts
+            defaultMode: 0755
+        - name: dags-data
+          emptyDir: {}
+        - name: requirements-txt
+          configMap:
+            name: airflow-requirements-txt
+        - hostPath:
+            path: /Users/dave/src/AF/dags
+          name: dags
+
+NOTES:
+Congratulations. You have just deployed Apache Airflow
+   export POD_NAME=$(kubectl get pods --namespace default -l "component=web,app=airflow" -o jsonpath="{.items[0].metadata.name}")
+   echo http://127.0.0.1:8080
+   kubectl port-forward --namespace default $POD_NAME 8080:8080
+
+2. Open Airflow in your web browser

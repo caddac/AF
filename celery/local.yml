@@ -3,7 +3,12 @@
 ##
 ## common settings and setting for the webserver
 airflow:
-  extraConfigmapMounts: []
+  extraConfigmapMounts:
+    - name: requirements-txt
+      mountPath: /requirements.txt
+      subPath: requirements.txt
+      configMap: airflow-requirements-txt
+      readOnly: true
   # - name: extra-metadata
   #   mountPath: /opt/metadata
   #   configMap: airflow-metadata
@@ -166,14 +171,15 @@ airflow:
   #   volumeMounts:
   #   - name: synchronised-dags
   #     mountPath: /dags
-  extraVolumeMounts: []
+  extraVolumeMounts:
   ## Additional volumeMounts to the main containers in the Scheduler, Worker and Web pods.
-  # - name: synchronised-dags
-  #   mountPath: /usr/local/airflow/dags
-  extraVolumes: []
+   - name: dags
+     mountPath: /usr/local/airflow/dags
+  extraVolumes:
   ## Additional volumes for the Scheduler, Worker and Web pods.
-  # - name: synchronised-dags
-  #   emptyDir: {}
+   - name: dags
+     hostPath:
+       path: /Users/dave/src/AF/dags
 
   ##
   ## Run initdb as an initContainer step (potentially necessary if you have
@@ -590,7 +596,7 @@ dags:
     privateKeyName: id_rsa
     gitSync:
       ## Turns on the side car container
-      enabled: true
+      enabled: false
       ## Image for the side car container
       image:
         ## docker-airflow image
@@ -606,7 +612,7 @@ dags:
       resources: {}
   initContainer:
     ## Fetch the source code when the pods starts
-    enabled: true
+    enabled: false
     ## Image for the init container (any image with git will do)
     image:
       ## docker-airflow image
@@ -754,7 +760,7 @@ serviceMonitor:
   path: /admin/metrics
   ## [Kube Prometheus Selector Label](https://github.com/helm/charts/tree/master/stable/prometheus-operator#exporters)
   selector:
-    prometheus: kube-prometheus
+    prometheus: celery-prometheus
 
 # Enable this if you're using https://github.com/coreos/prometheus-operator
 prometheusRule:

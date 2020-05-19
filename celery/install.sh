@@ -1,0 +1,1 @@
+helm install airflow  stable/airflow -f local.yml

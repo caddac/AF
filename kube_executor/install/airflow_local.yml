@@ -1,0 +1,67 @@
+airflow:
+  image:
+    repository: pcc1488/docker-airflow-kubernetes-executor
+    tag: latest
+  executor: Kubernetes
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /admin/metrics/
+    prometheus.io/port: "8080"
+  config:
+    AIRFLOW__CORE__FERNET_KEY: 'R3r6tZ9h4M12cIshn1FSwskYd1-9_Y_S4E6hvNruAAI='
+    AIRFLOW__CORE__LOAD_EXAMPLES: False
+
+    # Kubernetes Configuration
+    AIRFLOW__KUBERNETES__NAMESPACE: airflow # Or Set when you deploy with helm
+    AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: pcc1488/docker-airflow-kubernetes-executor
+    AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: latest
+    AIRFLOW__KUBERNETES_ENVIRONMENT_VARIABLES__AIRFLOW__CORE__FERNET_KEY: 'R3r6tZ9h4M12cIshn1FSwskYd1-9_Y_S4E6hvNruAAI='
+#    AIRFLOW__KUBERNETES__DAGS_IN_IMAGE: 'True'
+#    AIRFLOW__KUBERNETES__GIT_SYNC_ROOT: /usr/local/airflow/dags
+    AIRFLOW__KUBERNETES__LOGS_VOLUME_HOST: /Users/dave/src/AF/logs
+    AIRFLOW__KUBERNETES__DAGS_VOLUME_HOST: /Users/dave/src/AF/dags
+#    TODO: this is good for local dev on K8s, but in prod probably just copy dags in and deploy the container
+  extraVolumeMounts:
+    ## Additional volumeMounts to the main containers in the Scheduler, Worker and Web pods.
+    - name: dags
+      mountPath: /usr/local/airflow/dags
+#      TODO: this is good for local dev on K8s, but in prod probably just use remote logging to blob storage
+    - name: logs
+      mountPath: /usr/local/airflow/logs
+    - name: work
+      mountPath: /usr/local/airflow/work
+  extraVolumes:
+    ## Additional volumes for the Scheduler, Worker and Web pods.
+    - name: dags
+      hostPath:
+        path: /Users/dave/src/AF/dags
+    - name: logs
+      hostPath:
+        path: /Users/dave/src/AF/logs
+    - name: work
+      hostPath:
+        path: /Users/dave/src/AF/work
+  connections:
+    - id: json_placeholder_conn
+      type: http
+      host: https://jsonplaceholder.typicode.com/
+web:
+  baseUrl: http://local.host/airflow
+  initialDelaySeconds: 60
+  readinessProbe:
+    periodSeconds: 10
+    timeoutSeconds: 600
+ingress:
+  enabled: true
+  web:
+    path: '/airflow'
+    host: 'local.host'
+  annotations:
+    kubernetes.io/ingress.class: nginx
+# No need for kubernetes executor
+workers:
+  enabled: false
+redis:
+  enabled: false
+flower:
+  enabled: false

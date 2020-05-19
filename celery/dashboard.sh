@@ -1,7 +1,7 @@
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0/aio/deploy/recommended.yaml
 
-kubectl apply -f dashboard/dashboard-adminuser.yml
-kubectl apply -f dashboard/admin-cluster-role-binding.yaml
+kubectl apply -f ./dashboard/dashboard-adminuser.yml
+kubectl apply -f ./dashboard/admin-cluster-role-binding.yaml
 
 kubectl proxy &
 echo "proxy running as pid ${!}"

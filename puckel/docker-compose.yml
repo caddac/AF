@@ -1,0 +1,48 @@
+version: '3.7'
+services:
+    postgres:
+        image: postgres:9.6
+        environment:
+            - POSTGRES_USER=airflow
+            - POSTGRES_PASSWORD=airflow
+            - POSTGRES_DB=airflow
+        logging:
+            options:
+                max-size: 10m
+                max-file: "3"
+
+    webserver:
+        image: puckel/docker-airflow:1.10.9
+        restart: always
+        depends_on:
+            - postgres
+        environment:
+            - LOAD_EX=n
+            - EXECUTOR=Local
+            - AIRFLOW__WEBSERVER__DAG_DEFAULT_VIEW=graph
+            - AIRFLOW__KUBERNETES__IN_CLUSTER=False
+            - AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY=puckel/docker-airflow:1.10.9
+            - AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG=latest
+            - AIRFLOW__KUBERNETES_ENVIRONMENT_VARIABLES__AIRFLOW__CORE__FERNET_KEY='R3r6tZ9h4M12cIshn1FSwskYd1-9_Y_S4E6hvNruAAI='
+            - AIRFLOW__CORE__FERNET_KEY='R3r6tZ9h4M12cIshn1FSwskYd1-9_Y_S4E6hvNruAAI='
+#            - TODO: should probably just be in the image
+            - AIRFLOW__KUBERNETES__LOGS_VOLUME_HOST=/Users/dave/src/AF/logs
+            - AIRFLOW__KUBERNETES__DAGS_VOLUME_HOST=/Users/dave/src/AF/dags
+        logging:
+            options:
+                max-size: 10m
+                max-file: "3"
+        volumes:
+            - ../dags:/usr/local/airflow/dags
+            - ../work:/usr/local/airflow/work
+            - ./requirements.txt:/requirements.txt
+#            - TODO: this should be an airflow user rather than admin creds
+            - ~/.kube/config:/usr/local/airflow/.kube/config
+        ports:
+            - "8080:8080"
+        command: webserver
+        healthcheck:
+            test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-webserver.pid ]"]
+            interval: 30s
+            timeout: 30s
+            retries: 3
